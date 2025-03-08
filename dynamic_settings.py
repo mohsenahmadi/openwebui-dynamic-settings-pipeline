@@ -12,38 +12,10 @@ def classify_task(prompt):
     return "default"
 
 SETTINGS_MAP = {
-    "creative": {
-        "temperature": 0.9,
-        "top_k": 50,
-        "top_p": 0.95,
-        "frequency_penalty": 0.5,
-        "presence_penalty": 0.5,
-        "max_tokens": 1000
-    },
-    "factual": {
-        "temperature": 0.2,
-        "top_k": 10,
-        "top_p": 0.9,
-        "frequency_penalty": 0.0,
-        "presence_penalty": 0.0,
-        "max_tokens": 100
-    },
-    "technical": {
-        "temperature": 0.3,
-        "top_k": 20,
-        "top_p": 0.85,
-        "frequency_penalty": 0.0,
-        "presence_penalty": 0.0,
-        "max_tokens": 300
-    },
-    "default": {
-        "temperature": 0.7,
-        "top_k": 40,
-        "top_p": 0.9,
-        "frequency_penalty": 0.5,
-        "presence_penalty": 0.2,
-        "max_tokens": 400
-    }
+    "creative": {"temperature": 0.9, "top_k": 50, "top_p": 0.95, "frequency_penalty": 0.5, "presence_penalty": 0.5, "max_tokens": 1000},
+    "factual": {"temperature": 0.2, "top_k": 10, "top_p": 0.9, "frequency_penalty": 0.0, "presence_penalty": 0.0, "max_tokens": 100},
+    "technical": {"temperature": 0.3, "top_k": 20, "top_p": 0.85, "frequency_penalty": 0.0, "presence_penalty": 0.0, "max_tokens": 300},
+    "default": {"temperature": 0.7, "top_k": 40, "top_p": 0.9, "frequency_penalty": 0.5, "presence_penalty": 0.2, "max_tokens": 400}
 }
 
 class DynamicSettingsPipe(Pipe):
@@ -62,3 +34,5 @@ class DynamicSettingsPipe(Pipe):
         body["presence_penalty"] = settings["presence_penalty"]
         body["max_tokens"] = settings["max_tokens"]
         return body
+
+pipe = DynamicSettingsPipe()  # Important: Instantiate the pipe
