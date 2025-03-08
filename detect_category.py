@@ -1,11 +1,17 @@
-from typing import List, Union, Generator, Iterator
+from typing import List, Optional
+from pydantic import BaseModel
 from schemas import OpenAIChatMessage
 import re
 
 class Pipeline:
+    class Valves(BaseModel):
+        pipelines: List[str] = ["*"]  # Apply to all models
+        priority: int = 0
+
     def __init__(self):
-        # Set a human-readable name; id is inferred from filename
-        self.name = "DynamicCategoryLLMAdjuster"
+        self.type = "filter"
+        self.name = "DynamicCategoryLLMAdjusterFilter"
+        self.valves = self.Valves()
 
     async def on_startup(self):
         # This function is called when the server is started
@@ -80,24 +86,30 @@ class Pipeline:
         else:
             return "Conversational Responses"  # Default for general queries
 
-    def pipe(
-        self, user_message: str, model_id: str, messages: List[dict], body: dict
-    ) -> Union[str, Generator, Iterator]:
-        """Main pipeline logic to adjust LLM settings dynamically."""
-        print(f"pipe:{__name__}")
-        print(f"User message: {user_message}")
+    async def inlet(self, body: dict, user: Optional[dict] = None) -> dict:
+        """Modify the request body to adjust LLM settings dynamically."""
+        print(f"inlet:{__name__}")
         print(f"Body: {body}")
 
-        # Handle title generation if requested
-        if body.get("title", False):
-            print("Title Generation")
-            return "Dynamic Category LLM Adjuster"
+        # Safely extract the last user message
+        messages = body.get("messages", [])
+        user_message = ""
+        if messages:
+            for msg in reversed(messages):
+                if msg.get("role") == "user":
+                    user_message = msg.get("content", "")
+                    break
+
+        # If no user message found, skip processing (or handle as needed)
+        if not user_message:
+            print("No user message found, skipping category detection.")
+            return body
 
         # Detect category and get settings
         category = self.detect_category(user_message)
         settings = self.SETTINGS[category]
 
-        # Update the body with LLM settings (OpenAI-compatible parameters)
+        # Update body with settings
         body.update({
             "temperature": settings["temperature"],
             "top_k": settings["top_k"],
@@ -108,7 +120,7 @@ class Pipeline:
             "stop": settings["stop"]
         })
 
-        # Append note to the prompt
+        # Append note to the last user message
         note = (
             f"\n\n[Note: Your request was categorized as '{category}'. "
             f"The response will be generated with these settings: "
@@ -118,12 +130,17 @@ class Pipeline:
             f"presence_penalty={settings['presence_penalty']}, "
             f"stop={settings['stop']}]"
         )
-        modified_prompt = user_message + note
 
-        # Update the body with the modified prompt
-        body["messages"] = messages  # Preserve existing messages
-        body["messages"].append({"role": "user", "content": modified_prompt})
+        # Modify the last user message
+        if messages:
+            for i in range(len(messages) - 1, -1, -1):
+                if messages[i].get("role") == "user":
+                    messages[i]["content"] += note
+                    break
+            else:
+                # If no user message exists, append a new one (unlikely but safe)
+                messages.append({"role": "user", "content": user_message + note})
+            body["messages"] = messages
 
-        # Return the modified prompt; Open WebUI will handle the generation
         print(f"Modified body: {body}")
-        return modified_prompt
+        return body
