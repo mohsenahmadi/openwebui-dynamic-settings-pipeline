@@ -1,115 +1,58 @@
 from typing import List, Union, Generator, Iterator
-from schemas import OpenAIChatMessage
 from pydantic import BaseModel, Field
 
 class Pipeline:
     class Valves(BaseModel):
-        # Category configuration with model parameters
         CATEGORY_SETTINGS: dict = Field(
             default={
-                "Creative Writing": {
-                    "temperature": 0.9,
-                    "top_p": 0.95,
-                    "max_tokens": 2048
-                },
-                "Technical Writing": {
-                    "temperature": 0.3,
-                    "top_p": 0.7,
-                    "max_tokens": 4096
-                },
-                "DEFAULT": {
-                    "temperature": 0.7,
-                    "top_p": 0.9
-                }
+                "Creative Writing": {"temperature": 0.9},
+                "Technical Writing": {"temperature": 0.3},
+                "DEFAULT": {"temperature": 0.7}
             },
-            description="Model parameters per content category"
+            description="Model parameters per category"
         )
         
-        # Category detection settings
         CATEGORY_KEYWORDS: dict = Field(
             default={
-                "Creative Writing": ["story", "poem", "fiction"],
-                "Technical Writing": ["code", "api", "technical"],
-                "Question Answering": ["?", "how", "why"]
+                "Creative Writing": ["story", "poem"],
+                "Technical Writing": ["code", "api"]
             },
-            description="Keywords for automatic category detection"
+            description="Keywords for category detection"
         )
 
     def __init__(self):
-        self.name = "AutoTagger Pipeline"
+        self.name = "CategoryAdapter"
         self.valves = self.Valves()
 
     async def on_startup(self):
-        # Initialize pipeline components
         pass
 
     async def on_shutdown(self):
-        # Clean up resources
         pass
 
     async def on_valves_updated(self):
-        # Handle configuration changes
         pass
 
     async def inlet(self, body: dict, user: dict) -> dict:
-        # Detect category and apply parameters before API request
-        user_message = self._get_last_user_content(body)
-        category = self._detect_category(user_message)
-        body = self._apply_category_settings(body, category)
+        # Get last user message
+        user_message = next(
+            (msg["content"] for msg in reversed(body["messages"]) if msg["role"] == "user"),
+            ""
+        )
+        
+        # Detect category
+        category = "DEFAULT"
+        for cat, keywords in self.valves.CATEGORY_KEYWORDS.items():
+            if any(kw in user_message.lower() for kw in keywords):
+                category = cat
+                break
+        
+        # Apply category settings
+        body.update(self.valves.CATEGORY_SETTINGS.get(category, {}))
         return body
 
     async def outlet(self, body: dict, user: dict) -> dict:
-        # Add metadata to final response
-        if "metadata" not in body:
-            body["metadata"] = {}
-        body["metadata"]["processing_pipeline"] = self.name
         return body
 
-    def pipe(
-        self, user_message: str, model_id: str, messages: List[dict], body: dict
-    ) -> Union[str, Generator, Iterator]:
-        # Stream processing with category context
-        category = self._detect_category(user_message)
-        yield f"Category: {category}\n"
-        yield from self._generate_response(body)
-
-    def _get_last_user_content(self, body: dict) -> str:
-        # Extract last user message from chat history
-        for msg in reversed(body.get("messages", [])):
-            if msg.get("role") == "user":
-                return msg.get("content", "")
-        return ""
-
-    def _detect_category(self, text: str) -> str:
-        # Simple keyword-based categorization
-        text_lower = text.lower()
-        for category, keywords in self.valves.CATEGORY_KEYWORDS.items():
-            if any(kw in text_lower for kw in keywords):
-                return category
-        return "DEFAULT"
-
-    def _apply_category_settings(self, body: dict, category: str) -> dict:
-        # Apply model parameters based on detected category
-        settings = self.valves.CATEGORY_SETTINGS.get(
-            category,
-            self.valves.CATEGORY_SETTINGS["DEFAULT"]
-        )
-        
-        # Update model parameters
-        body.update({k: v for k, v in settings.items() if k not in body})
-        
-        # Add category metadata
-        if "metadata" not in body:
-            body["metadata"] = {}
-        body["metadata"]["detected_category"] = category
-        
-        return body
-
-    def _generate_response(self, body: dict):
-        # Simulated response generation
-        yield "Processing complete with parameters:\n"
-        yield json.dumps({
-            "temperature": body.get("temperature"),
-            "top_p": body.get("top_p"),
-            "max_tokens": body.get("max_tokens")
-        }, indent=2)
+    def pipe(self, user_message: str, model_id: str, messages: List[dict], body: dict):
+        yield f"Processed with {self.name}"
