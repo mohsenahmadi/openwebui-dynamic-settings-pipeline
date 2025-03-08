@@ -40,15 +40,27 @@ class Pipeline:
             description="Keywords for automatic category detection"
         )
 
-        # Ensure compatibility with Pydantic v2
+        # Additional fields to align with Open WebUI expectations
+        pipelines: List[str] = Field(default=[""], description="Target pipeline IDs")
+        priority: int = Field(default=0, description="Execution priority")
+
+        # Pydantic v2 configuration
         model_config = {
             "arbitrary_types_allowed": True
         }
 
+        def model_dump(self, *args, **kwargs):
+            # Ensure compatibility with serialization
+            return self.dict(*args, **kwargs) if hasattr(self, 'dict') else super().model_dump(*args, **kwargs)
+
     def __init__(self):
         self.name = "AutoTagger Pipeline"
         self.type = "filter"
-        self.valves = self.Valves()
+        # Initialize valves with default values
+        self.valves = self.Valves(
+            pipelines=[""],  # Connect to all pipelines
+            priority=0       # Default priority
+        )
 
     async def on_startup(self):
         print(f"Starting {self.name}")
@@ -60,7 +72,7 @@ class Pipeline:
         print(f"Valves updated for {self.name}")
 
     async def inlet(self, body: dict, user: Optional[dict] = None) -> dict:
-        if not body or "messages" not in body:
+        if not isinstance(body, dict) or "messages" not in body:
             return body
         
         user_message = self._get_last_user_content(body)
@@ -70,7 +82,7 @@ class Pipeline:
         return body
 
     async def outlet(self, body: dict, user: Optional[dict] = None) -> dict:
-        if not body:
+        if not isinstance(body, dict):
             return body
             
         if "metadata" not in body:
@@ -113,12 +125,10 @@ class Pipeline:
             self.valves.CATEGORY_SETTINGS["DEFAULT"]
         )
         
-        # Update body with settings, preserving existing values
         for key, value in settings.items():
             if key not in body:
                 body[key] = value
 
-        # Add metadata safely
         if "metadata" not in body:
             body["metadata"] = {}
         body["metadata"]["detected_category"] = category
