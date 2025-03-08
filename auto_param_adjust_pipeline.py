@@ -1,4 +1,11 @@
-# auto_param_adjust_pipeline.py
+from pydantic import BaseModel
+
+# A simple wrapper that provides the model_dump() method required by Open WebUI.
+class DummyRequest(BaseModel):
+    __root__: dict
+
+    def model_dump(self, *args, **kwargs):
+        return self.__root__
 
 class Pipeline:
     def __init__(self):
@@ -9,9 +16,9 @@ class Pipeline:
         # Valves: Apply this filter to all pipelines (all conversations) with high priority (0)
         self.valves = {"pipelines": ["*"], "priority": 0}
 
-    async def inlet(self, body: dict, user: dict = None) -> dict:
+    async def inlet(self, body: dict, user: dict = None):
         """
-        This inlet function intercepts the incoming request body before it is sent to the LLM.
+        Intercepts the incoming request body before it is sent to the LLM.
         It examines the latest user message, categorizes it, and dynamically adjusts generation parameters.
         """
         try:
@@ -21,7 +28,6 @@ class Pipeline:
                 prompt = messages[-1].get("content", "").lower()
 
                 # Determine the category using basic keyword matching.
-                # You can extend these rules or use a more advanced classification method.
                 category = "general"
                 if any(kw in prompt for kw in ["story", "poem", "imagine"]):
                     category = "creative"
@@ -49,14 +55,14 @@ class Pipeline:
                     body["top_p"] = 0.9
                     body["max_tokens"] = 768
         except Exception as e:
-            # If an error occurs, log it for debugging purposes
+            # Log any error to assist with debugging
             print("Error in AutoParamAdjust pipeline inlet:", e)
-        # Return the modified request body
-        return body
+        # Return the modified body wrapped in DummyRequest so it supports model_dump()
+        return DummyRequest(__root__=body)
 
-    async def outlet(self, body: dict, user: dict = None) -> dict:
+    async def outlet(self, body: dict, user: dict = None):
         """
-        The outlet function processes the response from the LLM.
-        In this case, it does not modify the output, and simply passes it along.
+        Processes the response from the LLM. In this case, it simply wraps the response
+        so that it supports the model_dump() method.
         """
-        return body
+        return DummyRequest(__root__=body)
