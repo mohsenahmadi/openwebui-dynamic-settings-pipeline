@@ -6,13 +6,14 @@ class Pipeline:
     def __init__(self):
         # Set a human-readable name; id is inferred from filename
         self.name = "DynamicCategoryLLMAdjuster"
-        # This is a standard pipeline, not a filter, so no 'type' or 'Valves' needed
 
     async def on_startup(self):
+        # This function is called when the server is started
         print(f"on_startup:{__name__}")
         pass
 
     async def on_shutdown(self):
+        # This function is called when the server is stopped
         print(f"on_shutdown:{__name__}")
         pass
 
@@ -107,8 +108,7 @@ class Pipeline:
             "stop": settings["stop"]
         })
 
-        # Since we can't directly generate here, we modify the prompt to include a note
-        # The actual response generation happens downstream in Open WebUI
+        # Append note to the prompt
         note = (
             f"\n\n[Note: Your request was categorized as '{category}'. "
             f"The response will be generated with these settings: "
@@ -125,4 +125,5 @@ class Pipeline:
         body["messages"].append({"role": "user", "content": modified_prompt})
 
         # Return the modified prompt; Open WebUI will handle the generation
+        print(f"Modified body: {body}")
         return modified_prompt
