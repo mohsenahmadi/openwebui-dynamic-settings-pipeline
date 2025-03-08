@@ -2,7 +2,7 @@ import json
 from typing import List, Union, Generator, Iterator, Optional
 from pydantic import BaseModel, Field
 
-# Assuming schemas is part of the project; providing a fallback if not available
+# Attempt to import OpenAIChatMessage; fallback if unavailable
 try:
     from schemas import OpenAIChatMessage
 except ImportError:
@@ -39,6 +39,11 @@ class Pipeline:
             },
             description="Keywords for automatic category detection"
         )
+
+        # Ensure compatibility with Pydantic v2
+        model_config = {
+            "arbitrary_types_allowed": True
+        }
 
     def __init__(self):
         self.name = "AutoTagger Pipeline"
@@ -108,10 +113,12 @@ class Pipeline:
             self.valves.CATEGORY_SETTINGS["DEFAULT"]
         )
         
+        # Update body with settings, preserving existing values
         for key, value in settings.items():
             if key not in body:
                 body[key] = value
 
+        # Add metadata safely
         if "metadata" not in body:
             body["metadata"] = {}
         body["metadata"]["detected_category"] = category
