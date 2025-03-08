@@ -28,26 +28,21 @@ class Pipeline:
         }
 
     async def on_startup(self):
-        # Initialize pipeline components
         pass
 
     async def on_shutdown(self):
-        # Clean up resources
         pass
 
     async def on_valves_updated(self):
-        # Handle configuration changes
         pass
 
     async def inlet(self, body: dict, user: dict) -> dict:
-        # Detect category and apply parameters before API request
         user_message = self._get_last_user_content(body)
         category = self._detect_category(user_message)
         body = self._apply_category_settings(body, category)
         return body
 
     async def outlet(self, body: dict, user: dict) -> dict:
-        # Add metadata to final response
         if "metadata" not in body:
             body["metadata"] = {}
         body["metadata"]["processing_pipeline"] = self.name
@@ -56,20 +51,17 @@ class Pipeline:
     def pipe(
         self, user_message: str, model_id: str, messages: List[dict], body: dict
     ) -> Union[str, Generator, Iterator]:
-        # Stream processing with category context
         category = self._detect_category(user_message)
         yield f"Category: {category}\n"
         yield from self._generate_response(body)
 
     def _get_last_user_content(self, body: dict) -> str:
-        # Extract last user message from chat history
         for msg in reversed(body.get("messages", [])):
             if msg.get("role") == "user":
                 return msg.get("content", "")
         return ""
 
     def _detect_category(self, text: str) -> str:
-        # Simple keyword-based categorization
         text_lower = text.lower()
         for category, keywords in self.category_keywords.items():
             if any(kw in text_lower for kw in keywords):
@@ -77,21 +69,16 @@ class Pipeline:
         return "DEFAULT"
 
     def _apply_category_settings(self, body: dict, category: str) -> dict:
-        # Apply model parameters based on detected category
         settings = self.category_settings.get(category, self.category_settings["DEFAULT"])
-        
-        # Update model parameters
-        body.update({k: v for k, v in settings.items()})
-        
-        # Add category metadata
+        for k, v in settings.items():
+            if body.get(k) is None:
+                body[k] = v
         if "metadata" not in body:
             body["metadata"] = {}
         body["metadata"]["detected_category"] = category
-        
         return body
 
     def _generate_response(self, body: dict) -> Generator:
-        # Simulated response generation
         yield "Processing complete with parameters:\n"
         yield json.dumps({
             "temperature": body.get("temperature"),
