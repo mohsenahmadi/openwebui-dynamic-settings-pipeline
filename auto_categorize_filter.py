@@ -1,34 +1,38 @@
 """
 AutoCategorizeFilter
 
-This filter classifies user messages into categories
-and adjusts generation parameters accordingly,
-using only Python dict access (no model_dump calls).
+A single-file filter for Open WebUI that:
+1. Inspects the user's latest message.
+2. Classifies it (using simple keyword rules).
+3. Adjusts generation parameters (temperature, top_p, etc.).
+4. Returns the updated request body.
+
+No calls to model_dump() are present.
 """
 
 class AutoCategorizeFilter:
     def __init__(self):
         """
-        Runs once when the filter is initialized.
-        We do not use Pydantic or zero-shot classification here,
-        so there's nothing to load.
+        Called once when this filter is loaded.
+        We do no special initialization here,
+        and we do NOT use pydantic or model_dump.
         """
         pass
 
     def inlet(self, body: dict, __user__: dict = None) -> dict:
         """
-        This method is called for each new user request
-        before sending it to the model.
+        Called for each new user request before it's sent to the model.
 
-        'body' is a normal Python dictionary containing:
-          - messages: The conversation list
-          - temperature, top_p, max_tokens, etc. if present
-        We classify the user's message (rule-based) and set parameters.
+        `body` is a normal Python dictionary containing request data:
+          - messages: The conversation list (list of dicts)
+          - temperature, top_p, max_tokens, etc.
+
+        Returns the same `body` dict, possibly modified.
         """
-        # 1. Extract the user's latest message text
+        # 1. Extract the user's latest message content (lowercased for simple checking).
         user_message = body["messages"][-1]["content"].lower()
 
-        # 2. Classify the user's message into a category (rule-based example)
+        # 2. Assign a category based on simple keywords.
         if "summarize" in user_message or "summary" in user_message:
             category = "Summarization"
         elif "translate" in user_message or "translation" in user_message:
@@ -37,7 +41,7 @@ class AutoCategorizeFilter:
             category = "Creative Writing"
         elif "explain" in user_message or "educational" in user_message:
             category = "Educational Content"
-        elif "tweet" in user_message or "social media" in user_message or "post this" in user_message:
+        elif "tweet" in user_message or "social media" in user_message or "post" in user_message:
             category = "Social Media Posts"
         elif "business" in user_message or "professional email" in user_message:
             category = "Business Writing"
@@ -48,7 +52,8 @@ class AutoCategorizeFilter:
         else:
             category = "General"
 
-        # 3. Adjust the generation parameters directly on body (no model_dump)
+        # 3. Adjust Open WebUI generation parameters based on the category.
+        #    None of these lines call model_dump(). We just modify the dict.
         if category == "Creative Writing":
             body["temperature"] = 0.9
             body["top_p"] = 0.95
@@ -113,17 +118,17 @@ class AutoCategorizeFilter:
             body["presence_penalty"] = 0.0
             body["max_tokens"] = 512
 
-        # Optional: Print debug info to console logs
-        print(f"[AutoCategorizeFilter] Category = {category}")
-        print(f"[AutoCategorizeFilter] Updated params: "
-              f"temperature={body['temperature']}, top_p={body['top_p']}, top_k={body['top_k']}")
+        # 4. Debug print statements (optional) to see what happened
+        print(f"[AutoCategorizeFilter] Category: {category}")
+        print(f"[AutoCategorizeFilter] Updated params: temperature={body.get('temperature')}, "
+              f"top_p={body.get('top_p')}, top_k={body.get('top_k')}")
 
-        # Return the updated dictionary
+        # 5. Return the updated dict so Open WebUI can proceed with generation.
         return body
 
     def outlet(self, response: dict, __user__: dict = None) -> dict:
         """
-        Called after the model responds, if you want to modify
-        the final output. We leave it unchanged.
+        Called after the model responds, letting us modify the
+        final response if we want. We'll leave it as-is.
         """
         return response
