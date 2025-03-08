@@ -1,60 +1,62 @@
-from typing import List, Optional
-from pydantic import BaseModel
-from schemas import OpenAIChatMessage  # (optional utilities for message format)
-from utils.pipelines.main import get_last_user_message
+# auto_param_adjust_pipeline.py
 
 class Pipeline:
-    class Valves(BaseModel):
-        pipelines: List[str] = ["*"]    # Apply to all model pipelines (all chats)&#8203;:contentReference[oaicite:6]{index=6}
-        priority: int = 0              # Priority of this filter (0 = high priority)
-        # (You could add more config valves here if needed, but not required)
-
     def __init__(self):
-        self.type = "filter"
+        # Pipeline name for identification
         self.name = "AutoParamAdjust"
-        self.valves = self.Valves()    # Initialize valves as defined above
+        # Define the type of this pipeline; "filter" means it modifies requests before they reach the LLM.
+        self.type = "filter"
+        # Valves: Apply this filter to all pipelines (all conversations) with high priority (0)
+        self.valves = {"pipelines": ["*"], "priority": 0}
 
-    async def inlet(self, body: dict, user: Optional[dict] = None) -> dict:
-        # This runs BEFORE sending the request to the LLM&#8203;:contentReference[oaicite:7]{index=7}
-        messages = body.get("messages", [])
-        user_msg = get_last_user_message(messages)
-        if user_msg is not None:
-            prompt = user_msg.get("content", "").lower()
+    async def inlet(self, body: dict, user: dict = None) -> dict:
+        """
+        This inlet function intercepts the incoming request body before it is sent to the LLM.
+        It examines the latest user message, categorizes it, and dynamically adjusts generation parameters.
+        """
+        try:
+            messages = body.get("messages", [])
+            if messages:
+                # Retrieve the last message (assuming it's from the user)
+                prompt = messages[-1].get("content", "").lower()
 
-            # --- Categorize the prompt ---
-            category = "general"
-            if any(keyword in prompt for keyword in ["story", "poem", "imagine"]):
-                category = "creative"
-            elif any(keyword in prompt for keyword in ["explain", "definition", "what is", "how to"]):
-                category = "technical"
-            elif any(keyword in prompt for keyword in ["code", "function", "algorithm"]):
-                category = "code"
-            # (You can expand these rules or use an LLM call for classification)
+                # Determine the category using basic keyword matching.
+                # You can extend these rules or use a more advanced classification method.
+                category = "general"
+                if any(kw in prompt for kw in ["story", "poem", "imagine"]):
+                    category = "creative"
+                elif any(kw in prompt for kw in ["explain", "what is", "how to", "definition"]):
+                    category = "technical"
+                elif any(kw in prompt for kw in ["code", "function", "algorithm"]):
+                    category = "code"
 
-            # --- Adjust parameters based on category ---
-            if category == "creative":
-                body["temperature"] = 0.9   # more randomness for creative writing
-                body["top_p"] = 0.95        # use top-p sampling for more diverse output
-                body["max_tokens"] = 1024   # allow longer output for stories/poems
-            elif category == "technical":
-                body["temperature"] = 0.2   # low randomness for factual accuracy
-                body["top_p"] = 0.8         # focus on likely tokens
-                body["max_tokens"] = 512    # moderate length for explanations
-            elif category == "code":
-                body["temperature"] = 0.1   # very deterministic for code
-                body["top_p"] = 0.5         # reduce creativity
-                body["max_tokens"] = 256    # code answers usually shorter
-            else:
-                # general/default – you can either leave defaults or set a baseline
-                body["temperature"] = 0.7
-                body["top_p"] = 0.9
-                body["max_tokens"] = 768
-
-            # (Optionally, adjust other parameters like presence_penalty, etc., here)
-
+                # Adjust generation parameters based on the determined category
+                if category == "creative":
+                    body["temperature"] = 0.9    # High randomness for creative content
+                    body["top_p"] = 0.95         # More diversity in token selection
+                    body["max_tokens"] = 1024    # Allow longer responses
+                elif category == "technical":
+                    body["temperature"] = 0.2    # Low randomness for factual accuracy
+                    body["top_p"] = 0.8
+                    body["max_tokens"] = 512
+                elif category == "code":
+                    body["temperature"] = 0.1    # Very deterministic output for code generation
+                    body["top_p"] = 0.5
+                    body["max_tokens"] = 256
+                else:
+                    # Default settings for general queries
+                    body["temperature"] = 0.7
+                    body["top_p"] = 0.9
+                    body["max_tokens"] = 768
+        except Exception as e:
+            # If an error occurs, log it for debugging purposes
+            print("Error in AutoParamAdjust pipeline inlet:", e)
         # Return the modified request body
         return body
 
-    async def outlet(self, body: dict, user: Optional[dict] = None) -> dict:
-        # Not needed for this use-case, but must be defined. We’ll just return the output unchanged.
+    async def outlet(self, body: dict, user: dict = None) -> dict:
+        """
+        The outlet function processes the response from the LLM.
+        In this case, it does not modify the output, and simply passes it along.
+        """
         return body
