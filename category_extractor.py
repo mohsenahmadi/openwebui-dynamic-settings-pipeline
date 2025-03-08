@@ -1,36 +1,32 @@
 import os
 import json
 from typing import List, Union, Generator, Iterator
-from schemas import OpenAIChatMessage
-from pydantic import BaseModel
-
-class CategorySettings(BaseModel):
-    temperature: float
-    top_p: float
-    max_tokens: int = None
-
-class Valves(BaseModel):
-    CATEGORY_SETTINGS: dict = {
-        "Creative Writing": CategorySettings(
-            temperature=0.9, top_p=0.95, max_tokens=2048
-        ),
-        "Technical Writing": CategorySettings(
-            temperature=0.3, top_p=0.7, max_tokens=4096
-        ),
-        "DEFAULT": CategorySettings(
-            temperature=0.7, top_p=0.9, max_tokens=None
-        )
-    }
-    CATEGORY_KEYWORDS: dict = {
-        "Creative Writing": ["story", "poem", "fiction"],
-        "Technical Writing": ["code", "api", "technical"],
-        "Question Answering": ["?", "how", "why"]
-    }
 
 class Pipeline:
     def __init__(self):
         self.name = "AutoTagger Pipeline"
-        self.valves = Valves()
+        self.category_settings = {
+            "Creative Writing": {
+                "temperature": 0.9,
+                "top_p": 0.95,
+                "max_tokens": 2048
+            },
+            "Technical Writing": {
+                "temperature": 0.3,
+                "top_p": 0.7,
+                "max_tokens": 4096
+            },
+            "DEFAULT": {
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "max_tokens": None
+            }
+        }
+        self.category_keywords = {
+            "Creative Writing": ["story", "poem", "fiction"],
+            "Technical Writing": ["code", "api", "technical"],
+            "Question Answering": ["?", "how", "why"]
+        }
 
     async def on_startup(self):
         # Initialize pipeline components
@@ -76,20 +72,17 @@ class Pipeline:
     def _detect_category(self, text: str) -> str:
         # Simple keyword-based categorization
         text_lower = text.lower()
-        for category, keywords in self.valves.CATEGORY_KEYWORDS.items():
+        for category, keywords in self.category_keywords.items():
             if any(kw in text_lower for kw in keywords):
                 return category
         return "DEFAULT"
 
     def _apply_category_settings(self, body: dict, category: str) -> dict:
         # Apply model parameters based on detected category
-        settings = self.valves.CATEGORY_SETTINGS.get(
-            category,
-            self.valves.CATEGORY_SETTINGS["DEFAULT"]
-        )
+        settings = self.category_settings.get(category, self.category_settings["DEFAULT"])
         
         # Update model parameters
-        body.update({k: v for k, v in settings.dict().items() if k not in body})
+        body.update({k: v for k, v in settings.items() if k not in body})
         
         # Add category metadata
         if "metadata" not in body:
