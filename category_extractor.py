@@ -1,125 +1,115 @@
-import re
 from typing import List, Union, Generator, Iterator
-from pydantic import BaseModel
 from schemas import OpenAIChatMessage
-
+from pydantic import BaseModel, Field
 
 class Pipeline:
-    """
-    Example pipeline that extracts a [CATEGORY] ... [/CATEGORY] tag
-    from the model output and stores it in the 'metadata' field.
-    """
-
     class Valves(BaseModel):
-        # You can define custom valves (settings) here if desired.
-        pass
+        # Category configuration with model parameters
+        CATEGORY_SETTINGS: dict = Field(
+            default={
+                "Creative Writing": {
+                    "temperature": 0.9,
+                    "top_p": 0.95,
+                    "max_tokens": 2048
+                },
+                "Technical Writing": {
+                    "temperature": 0.3,
+                    "top_p": 0.7,
+                    "max_tokens": 4096
+                },
+                "DEFAULT": {
+                    "temperature": 0.7,
+                    "top_p": 0.9
+                }
+            },
+            description="Model parameters per content category"
+        )
+        
+        # Category detection settings
+        CATEGORY_KEYWORDS: dict = Field(
+            default={
+                "Creative Writing": ["story", "poem", "fiction"],
+                "Technical Writing": ["code", "api", "technical"],
+                "Question Answering": ["?", "how", "why"]
+            },
+            description="Keywords for automatic category detection"
+        )
 
     def __init__(self):
-        """
-        Optionally set an ID or name for the pipeline. 
-        Best practice: let ID be inferred from filename.
-        """
-        self.name = "Pipeline Example with Category Extraction"
-        # self.id = "pipeline_example_category"  # optionally specify a unique ID
+        self.name = "AutoTagger Pipeline"
+        self.valves = self.Valves()
 
     async def on_startup(self):
-        """
-        Called when the server is started.
-        """
-        print(f"on_startup: {__name__}")
+        # Initialize pipeline components
+        pass
 
     async def on_shutdown(self):
-        """
-        Called when the server is stopped.
-        """
-        print(f"on_shutdown: {__name__}")
+        # Clean up resources
+        pass
 
     async def on_valves_updated(self):
-        """
-        Called when valves (settings) are updated.
-        """
+        # Handle configuration changes
         pass
 
     async def inlet(self, body: dict, user: dict) -> dict:
-        """
-        Called before the OpenAI API request is made.
-        You can modify the form data before it is sent to the API.
-        """
-        print(f"inlet: {__name__}")
-        # Debug prints for demonstration
-        print("inlet body:", body)
-        print("inlet user:", user)
-
-        # You can manipulate 'body' here if needed.
+        # Detect category and apply parameters before API request
+        user_message = self._get_last_user_content(body)
+        category = self._detect_category(user_message)
+        body = self._apply_category_settings(body, category)
         return body
 
     async def outlet(self, body: dict, user: dict) -> dict:
-        """
-        Called after the OpenAI API response is completed.
-        You can inspect or modify the response here before returning to the client.
-        """
-        print(f"outlet: {__name__}")
-        # Debug prints for demonstration
-        print("outlet body (before):", body)
-        print("outlet user:", user)
-
-        # Here, we assume body follows the standard OpenAI response format:
-        # {
-        #   "choices": [
-        #       {
-        #           "message": {
-        #               "content": "<the final model output>"
-        #           }
-        #       }
-        #   ],
-        #   ...
-        # }
-        #
-        # You can adjust as necessary if your format is different.
-
-        # Make sure there is at least one choice with content
-        if "choices" in body and len(body["choices"]) > 0:
-            content = body["choices"][0].get("message", {}).get("content", "")
-
-            # Look for [CATEGORY] ... [/CATEGORY]
-            match = re.search(r"\[CATEGORY\](.*?)\[/CATEGORY\]", content, re.DOTALL)
-            if match:
-                extracted_category = match.group(1).strip()
-
-                # Store in body["metadata"] (create if it doesn't exist)
-                if "metadata" not in body:
-                    body["metadata"] = {}
-                body["metadata"]["category"] = extracted_category
-
-                # Optional: Remove the tag from the final content
-                cleaned_content = re.sub(r"\[CATEGORY\].*?\[/CATEGORY\]", "", content, flags=re.DOTALL).strip()
-                body["choices"][0]["message"]["content"] = cleaned_content
-
-        print("outlet body (after):", body)
+        # Add metadata to final response
+        if "metadata" not in body:
+            body["metadata"] = {}
+        body["metadata"]["processing_pipeline"] = self.name
         return body
 
     def pipe(
-        self,
-        user_message: str,
-        model_id: str,
-        messages: List[dict],
-        body: dict
+        self, user_message: str, model_id: str, messages: List[dict], body: dict
     ) -> Union[str, Generator, Iterator]:
-        """
-        This is where you can add your custom pipeline logic (e.g., RAG or other).
-        For demonstration, it returns a string indicating it's from this pipeline.
-        """
-        print(f"pipe: {__name__}")
+        # Stream processing with category context
+        category = self._detect_category(user_message)
+        yield f"Category: {category}\n"
+        yield from self._generate_response(body)
 
-        # Example check: if title generation is requested
-        if body.get("title", False):
-            print("Title Generation Request")
+    def _get_last_user_content(self, body: dict) -> str:
+        # Extract last user message from chat history
+        for msg in reversed(body.get("messages", [])):
+            if msg.get("role") == "user":
+                return msg.get("content", "")
+        return ""
 
-        # Debug prints
-        print("messages:", messages)
-        print("user_message:", user_message)
-        print("body:", body)
+    def _detect_category(self, text: str) -> str:
+        # Simple keyword-based categorization
+        text_lower = text.lower()
+        for category, keywords in self.valves.CATEGORY_KEYWORDS.items():
+            if any(kw in text_lower for kw in keywords):
+                return category
+        return "DEFAULT"
 
-        # Return any string or generator you wish. 
-        # For demonstration, we simply return a placeholder response.
-        return f"{__name__} response to: {user_message}"
+    def _apply_category_settings(self, body: dict, category: str) -> dict:
+        # Apply model parameters based on detected category
+        settings = self.valves.CATEGORY_SETTINGS.get(
+            category,
+            self.valves.CATEGORY_SETTINGS["DEFAULT"]
+        )
+        
+        # Update model parameters
+        body.update({k: v for k, v in settings.items() if k not in body})
+        
+        # Add category metadata
+        if "metadata" not in body:
+            body["metadata"] = {}
+        body["metadata"]["detected_category"] = category
+        
+        return body
+
+    def _generate_response(self, body: dict):
+        # Simulated response generation
+        yield "Processing complete with parameters:\n"
+        yield json.dumps({
+            "temperature": body.get("temperature"),
+            "top_p": body.get("top_p"),
+            "max_tokens": body.get("max_tokens")
+        }, indent=2)
