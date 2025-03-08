@@ -1,3 +1,4 @@
+import os
 import json
 from typing import List, Union, Generator, Iterator, Optional
 from schemas import OpenAIChatMessage
@@ -18,9 +19,15 @@ class Pipeline:
                     "top_p": 0.7,
                     "max_tokens": 4096
                 },
+                "Question Answering": {
+                    "temperature": 0.7,
+                    "top_p": 0.8,
+                    "max_tokens": 1024
+                },
                 "DEFAULT": {
                     "temperature": 0.7,
-                    "top_p": 0.9
+                    "top_p": 0.9,
+                    "max_tokens": 2048
                 }
             },
             description="Model parameters per content category"
@@ -29,65 +36,95 @@ class Pipeline:
         # Category detection settings
         CATEGORY_KEYWORDS: dict = Field(
             default={
-                "Creative Writing": ["story", "poem", "fiction"],
-                "Technical Writing": ["code", "api", "technical"],
-                "Question Answering": ["?", "how", "why"]
+                "Creative Writing": ["story", "poem", "fiction", "creative", "write", "narrative"],
+                "Technical Writing": ["code", "api", "technical", "function", "module", "script", "programming"],
+                "Question Answering": ["?", "how", "why", "what", "when", "where", "who"]
             },
             description="Keywords for automatic category detection"
         )
+        
+        # Pipeline settings
+        pipelines: List[str] = Field(default=["*"], description="Target pipeline IDs")
+        priority: int = Field(default=50, description="Pipeline priority (lower = higher priority)")
 
     def __init__(self):
+        self.type = "filter"  # Required for filter pipelines
         self.name = "AutoTagger Pipeline"
         self.valves = self.Valves()
 
     async def on_startup(self):
         # Initialize pipeline components
-        print(f"{self.name} started.")
+        print(f"on_startup:{__name__}")
+        pass
 
     async def on_shutdown(self):
         # Clean up resources
-        print(f"{self.name} shutting down.")
+        print(f"on_shutdown:{__name__}")
+        pass
 
     async def on_valves_updated(self):
         # Handle configuration changes
-        print(f"{self.name} valves updated.")
+        print(f"on_valves_updated:{__name__}")
+        pass
 
     async def inlet(self, body: dict, user: Optional[dict] = None) -> dict:
         # Detect category and apply parameters before API request
+        print(f"pipe:{__name__}")
+        
+        if not user:
+            return body
+            
         user_message = self._get_last_user_content(body)
         category = self._detect_category(user_message)
         body = self._apply_category_settings(body, category)
+        
         return body
 
     async def outlet(self, body: dict, user: Optional[dict] = None) -> dict:
         # Add metadata to final response
+        if not user:
+            return body
+            
         if "metadata" not in body:
             body["metadata"] = {}
         body["metadata"]["processing_pipeline"] = self.name
         return body
 
-    def pipe(
-        self, user_message: str, model_id: str, messages: List[dict], body: dict
-    ) -> Union[str, Generator, Iterator]:
-        # Stream processing with category context
-        category = self._detect_category(user_message)
-        body = self._apply_category_settings(body, category)
-        yield f"Category: {category}\n"
-        yield from self._generate_response(body)
-
     def _get_last_user_content(self, body: dict) -> str:
         # Extract last user message from chat history
-        for msg in reversed(body.get("messages", [])):
-            if msg.get("role") == "user":
-                return msg.get("content", "")
+        messages = body.get("messages", [])
+        for msg in reversed(messages):
+            if isinstance(msg, dict) and msg.get("role") == "user" and "content" in msg:
+                # Handle both string content and complex content structures
+                content = msg.get("content", "")
+                if isinstance(content, str):
+                    return content
+                elif isinstance(content, list):
+                    # Extract text from content parts
+                    text_parts = []
+                    for part in content:
+                        if isinstance(part, dict) and part.get("type") == "text":
+                            text_parts.append(part.get("text", ""))
+                    return " ".join(text_parts)
         return ""
 
     def _detect_category(self, text: str) -> str:
         # Simple keyword-based categorization
+        if not text:
+            return "DEFAULT"
+            
         text_lower = text.lower()
+        
+        # Count keyword matches for each category
+        category_scores = {}
         for category, keywords in self.valves.CATEGORY_KEYWORDS.items():
-            if any(kw in text_lower for kw in keywords):
-                return category
+            score = sum(1 for kw in keywords if kw.lower() in text_lower)
+            if score > 0:
+                category_scores[category] = score
+        
+        # Return category with highest score, or DEFAULT if no matches
+        if category_scores:
+            return max(category_scores.items(), key=lambda x: x[1])[0]
         return "DEFAULT"
 
     def _apply_category_settings(self, body: dict, category: str) -> dict:
@@ -97,22 +134,17 @@ class Pipeline:
             self.valves.CATEGORY_SETTINGS["DEFAULT"]
         )
         
-        # Update model parameters
-        for k, v in settings.items():
-            body.setdefault(k, v)
+        # Create a copy of body to avoid modifying the original
+        modified_body = body.copy()
+        
+        # Update model parameters if not already specified
+        for key, value in settings.items():
+            if key not in modified_body or modified_body[key] is None:
+                modified_body[key] = value
         
         # Add category metadata
-        if "metadata" not in body:
-            body["metadata"] = {}
-        body["metadata"]["detected_category"] = category
+        if "metadata" not in modified_body:
+            modified_body["metadata"] = {}
+        modified_body["metadata"]["detected_category"] = category
         
-        return body
-
-    def _generate_response(self, body: dict):
-        # Simulated response generation
-        yield "Processing complete with parameters:\n"
-        yield json.dumps({
-            "temperature": body.get("temperature"),
-            "top_p": body.get("top_p"),
-            "max_tokens": body.get("max_tokens")
-        }, indent=2)
+        return modified_body
