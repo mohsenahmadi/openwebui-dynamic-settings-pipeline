@@ -1,4 +1,3 @@
-import os
 import json
 from typing import List, Union, Generator, Iterator
 
@@ -82,7 +81,7 @@ class Pipeline:
         settings = self.category_settings.get(category, self.category_settings["DEFAULT"])
         
         # Update model parameters
-        body.update({k: v for k, v in settings.items() if k not in body})
+        body.update({k: v for k, v in settings.items()})
         
         # Add category metadata
         if "metadata" not in body:
