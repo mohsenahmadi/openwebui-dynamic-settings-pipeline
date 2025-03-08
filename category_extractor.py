@@ -10,10 +10,11 @@ def load_tag_params():
 tag_params = load_tag_params()
 
 def post_user_message(request, session):
-    messages = request.get("messages")
+    # Assuming request and session are dictionaries
+    messages = request.get("messages", [])
     if messages:
         for msg in messages:
-            if msg["role"] == "user" and msg["content"].startswith("Tag: "):
+            if isinstance(msg, dict) and msg.get("role") == "user" and msg.get("content", "").startswith("Tag: "):
                 tag = msg["content"].split("Tag: ", 1)[1].strip()
                 session["tag"] = tag
                 break
@@ -23,12 +24,12 @@ def pre_llm(request, session):
     tag = session.get("tag")
     if tag and tag in tag_params:
         params = tag_params[tag]
-        # Set standard parameters
+        # Set standard parameters directly in the request dictionary
         standard_params = ["temperature", "top_p", "max_tokens", "frequency_penalty", "presence_penalty"]
         for param in standard_params:
             if param in params:
                 request[param] = params[param]
-        # Handle custom parameters
+        # Handle custom parameters like reasoning_effort
         if "reasoning_effort" in params:
             reasoning = params["reasoning_effort"]
             instruction = ""
@@ -36,14 +37,12 @@ def pre_llm(request, session):
                 instruction = "\nPlease provide a detailed step-by-step reasoning."
             elif reasoning == "medium":
                 instruction = "\nPlease provide some reasoning."
-            # Modify the prompt accordingly
-            if isinstance(request.get("prompt"), str):
+            # Modify the prompt or messages
+            if "prompt" in request and isinstance(request["prompt"], str):
                 request["prompt"] += instruction
-            elif isinstance(request.get("messages"), list):
-                # Assuming it's a list of messages, and the last message is from the user
-                if request["messages"] and request["messages"][-1]["role"] == "user":
+            elif "messages" in request and isinstance(request["messages"], list):
+                if request["messages"] and isinstance(request["messages"][-1], dict) and request["messages"][-1].get("role") == "user":
                     request["messages"][-1]["content"] += instruction
                 else:
-                    # Add a new user message with the instruction
                     request["messages"].append({"role": "user", "content": instruction})
     return request
