@@ -1,51 +1,49 @@
 import os
 import json
-from typing import List, Union, Generator, Iterator, Optional
+from typing import List, Union, Generator, Iterator, Optional, Dict, Any
 from schemas import OpenAIChatMessage
 from pydantic import BaseModel, Field
 
 class Pipeline:
     class Valves(BaseModel):
         # Category configuration with model parameters
-        CATEGORY_SETTINGS: dict = Field(
-            default={
-                "Creative Writing": {
-                    "temperature": 0.9,
-                    "top_p": 0.95,
-                    "max_tokens": 2048
-                },
-                "Technical Writing": {
-                    "temperature": 0.3,
-                    "top_p": 0.7,
-                    "max_tokens": 4096
-                },
-                "Question Answering": {
-                    "temperature": 0.7,
-                    "top_p": 0.8,
-                    "max_tokens": 1024
-                },
-                "DEFAULT": {
-                    "temperature": 0.7,
-                    "top_p": 0.9,
-                    "max_tokens": 2048
-                }
+        CATEGORY_SETTINGS: Dict[str, Dict[str, Any]] = {
+            "Creative Writing": {
+                "temperature": 0.9,
+                "top_p": 0.95,
+                "max_tokens": 2048
             },
-            description="Model parameters per content category"
-        )
+            "Technical Writing": {
+                "temperature": 0.3,
+                "top_p": 0.7,
+                "max_tokens": 4096
+            },
+            "Question Answering": {
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "max_tokens": 1024
+            },
+            "DEFAULT": {
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "max_tokens": 2048
+            }
+        }
         
         # Category detection settings
-        CATEGORY_KEYWORDS: dict = Field(
-            default={
-                "Creative Writing": ["story", "poem", "fiction", "creative", "write", "narrative"],
-                "Technical Writing": ["code", "api", "technical", "function", "module", "script", "programming"],
-                "Question Answering": ["?", "how", "why", "what", "when", "where", "who"]
-            },
-            description="Keywords for automatic category detection"
-        )
+        CATEGORY_KEYWORDS: Dict[str, List[str]] = {
+            "Creative Writing": ["story", "poem", "fiction", "creative", "write", "narrative"],
+            "Technical Writing": ["code", "api", "technical", "function", "module", "script", "programming"],
+            "Question Answering": ["?", "how", "why", "what", "when", "where", "who"]
+        }
         
         # Pipeline settings
-        pipelines: List[str] = Field(default=["*"], description="Target pipeline IDs")
-        priority: int = Field(default=50, description="Pipeline priority (lower = higher priority)")
+        pipelines: List[str] = ["*"]
+        priority: int = 50
+        
+        class Config:
+            # Configure for Pydantic v1 compatibility
+            validate_assignment = True
 
     def __init__(self):
         self.type = "filter"  # Required for filter pipelines
