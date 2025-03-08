@@ -1,52 +1,60 @@
 import os
 from typing import List, Optional
-from pydantic import BaseModel
-from schemas import OpenAIChatMessage
 
 class Pipeline:
-    class Valves(BaseModel):
-        # List target pipeline ids (models) that this filter will be connected to.
-        pipelines: List[str] = ["*"]
-        # Assign a priority level to the filter pipeline.
-        priority: int = 50
-        # Category-specific settings
-        # Keywords for automatic category detection
-        creative_keywords: List[str] = ["story", "poem", "fiction", "creative", "write", "narrative"]
-        technical_keywords: List[str] = ["code", "api", "technical", "function", "module", "script", "programming"]
-        question_keywords: List[str] = ["?", "how", "why", "what", "when", "where", "who"]
-        # Model parameters for each category
-        creative_temperature: float = 0.9
-        creative_top_p: float = 0.95
-        creative_max_tokens: int = 2048
-        technical_temperature: float = 0.3
-        technical_top_p: float = 0.7
-        technical_max_tokens: int = 4096
-        question_temperature: float = 0.7
-        question_top_p: float = 0.8
-        question_max_tokens: int = 1024
-        default_temperature: float = 0.7
-        default_top_p: float = 0.9
-        default_max_tokens: int = 2048
-
     def __init__(self):
-        # Pipeline filters are only compatible with Open WebUI
+        # Pipeline type
         self.type = "filter"
         self.name = "AutoTagger Pipeline"
-        self.valves = self.Valves()
+        
+        # Define valves directly as a dictionary
+        self.valves = {
+            "pipelines": ["*"],
+            "priority": 50
+        }
+        
+        # Store settings and keywords as class attributes for easier access
+        self.creative_keywords = ["story", "poem", "fiction", "creative", "write", "narrative"]
+        self.technical_keywords = ["code", "api", "technical", "function", "module", "script", "programming"]
+        self.question_keywords = ["?", "how", "why", "what", "when", "where", "who"]
+        
+        self.creative_params = {
+            "temperature": 0.9,
+            "top_p": 0.95,
+            "max_tokens": 2048
+        }
+        self.technical_params = {
+            "temperature": 0.3,
+            "top_p": 0.7,
+            "max_tokens": 4096
+        }
+        self.question_params = {
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "max_tokens": 1024
+        }
+        self.default_params = {
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "max_tokens": 2048
+        }
 
     async def on_startup(self):
-        # This function is called when the server is started.
         print(f"on_startup:{__name__}")
         pass
 
     async def on_shutdown(self):
-        # This function is called when the server is stopped.
         print(f"on_shutdown:{__name__}")
         pass
 
+    # Add mock dictionary-like access to valves
+    def __getattr__(self, name):
+        # If something tries to access valves.model_dump, provide a function
+        if name == "model_dump":
+            return lambda: self.valves
+
     async def inlet(self, body: dict, user: Optional[dict] = None) -> dict:
         print(f"pipe:{__name__}")
-        print(body)
         
         if not user:
             return body
@@ -75,34 +83,18 @@ class Pipeline:
         modified_body = body.copy()
         
         # Apply parameters based on category
+        category_params = self.default_params
         if category == "Creative Writing":
-            if "temperature" not in modified_body:
-                modified_body["temperature"] = self.valves.creative_temperature
-            if "top_p" not in modified_body:
-                modified_body["top_p"] = self.valves.creative_top_p
-            if "max_tokens" not in modified_body:
-                modified_body["max_tokens"] = self.valves.creative_max_tokens
+            category_params = self.creative_params
         elif category == "Technical Writing":
-            if "temperature" not in modified_body:
-                modified_body["temperature"] = self.valves.technical_temperature
-            if "top_p" not in modified_body:
-                modified_body["top_p"] = self.valves.technical_top_p
-            if "max_tokens" not in modified_body:
-                modified_body["max_tokens"] = self.valves.technical_max_tokens
+            category_params = self.technical_params
         elif category == "Question Answering":
-            if "temperature" not in modified_body:
-                modified_body["temperature"] = self.valves.question_temperature
-            if "top_p" not in modified_body:
-                modified_body["top_p"] = self.valves.question_top_p
-            if "max_tokens" not in modified_body:
-                modified_body["max_tokens"] = self.valves.question_max_tokens
-        else:  # DEFAULT
-            if "temperature" not in modified_body:
-                modified_body["temperature"] = self.valves.default_temperature
-            if "top_p" not in modified_body:
-                modified_body["top_p"] = self.valves.default_top_p
-            if "max_tokens" not in modified_body:
-                modified_body["max_tokens"] = self.valves.default_max_tokens
+            category_params = self.question_params
+        
+        # Apply parameters if not already specified
+        for key, value in category_params.items():
+            if key not in modified_body or modified_body[key] is None:
+                modified_body[key] = value
         
         # Add metadata
         if "metadata" not in modified_body:
@@ -112,7 +104,6 @@ class Pipeline:
         return modified_body
 
     async def outlet(self, body: dict, user: Optional[dict] = None) -> dict:
-        # This function is called after the OpenAI API responds.
         if not user:
             return body
             
@@ -129,9 +120,9 @@ class Pipeline:
         text_lower = text.lower()
         
         # Check each category
-        creative_score = sum(1 for kw in self.valves.creative_keywords if kw.lower() in text_lower)
-        technical_score = sum(1 for kw in self.valves.technical_keywords if kw.lower() in text_lower)
-        question_score = sum(1 for kw in self.valves.question_keywords if kw.lower() in text_lower)
+        creative_score = sum(1 for kw in self.creative_keywords if kw.lower() in text_lower)
+        technical_score = sum(1 for kw in self.technical_keywords if kw.lower() in text_lower)
+        question_score = sum(1 for kw in self.question_keywords if kw.lower() in text_lower)
         
         # Determine category with highest score
         scores = {
