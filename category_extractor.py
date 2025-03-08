@@ -2,44 +2,35 @@ import os
 import json
 from typing import List, Union, Generator, Iterator
 from schemas import OpenAIChatMessage
-from pydantic import BaseModel, Field
+from pydantic import BaseModel
+
+class CategorySettings(BaseModel):
+    temperature: float
+    top_p: float
+    max_tokens: int = None
+
+class Valves(BaseModel):
+    CATEGORY_SETTINGS: dict = {
+        "Creative Writing": CategorySettings(
+            temperature=0.9, top_p=0.95, max_tokens=2048
+        ),
+        "Technical Writing": CategorySettings(
+            temperature=0.3, top_p=0.7, max_tokens=4096
+        ),
+        "DEFAULT": CategorySettings(
+            temperature=0.7, top_p=0.9, max_tokens=None
+        )
+    }
+    CATEGORY_KEYWORDS: dict = {
+        "Creative Writing": ["story", "poem", "fiction"],
+        "Technical Writing": ["code", "api", "technical"],
+        "Question Answering": ["?", "how", "why"]
+    }
 
 class Pipeline:
-    class Valves(BaseModel):
-        # Category configuration with model parameters
-        CATEGORY_SETTINGS: dict = Field(
-            default={
-                "Creative Writing": {
-                    "temperature": 0.9,
-                    "top_p": 0.95,
-                    "max_tokens": 2048
-                },
-                "Technical Writing": {
-                    "temperature": 0.3,
-                    "top_p": 0.7,
-                    "max_tokens": 4096
-                },
-                "DEFAULT": {
-                    "temperature": 0.7,
-                    "top_p": 0.9
-                }
-            },
-            description="Model parameters per content category"
-        )
-        
-        # Category detection settings
-        CATEGORY_KEYWORDS: dict = Field(
-            default={
-                "Creative Writing": ["story", "poem", "fiction"],
-                "Technical Writing": ["code", "api", "technical"],
-                "Question Answering": ["?", "how", "why"]
-            },
-            description="Keywords for automatic category detection"
-        )
-
     def __init__(self):
         self.name = "AutoTagger Pipeline"
-        self.valves = self.Valves()
+        self.valves = Valves()
 
     async def on_startup(self):
         # Initialize pipeline components
@@ -98,7 +89,7 @@ class Pipeline:
         )
         
         # Update model parameters
-        body.update({k: v for k, v in settings.items() if k not in body})
+        body.update({k: v for k, v in settings.dict().items() if k not in body})
         
         # Add category metadata
         if "metadata" not in body:
@@ -115,4 +106,3 @@ class Pipeline:
             "top_p": body.get("top_p"),
             "max_tokens": body.get("max_tokens")
         }, indent=2)
-
