@@ -1,44 +1,8 @@
 import os
 import json
-from typing import List, Optional
-from pydantic import BaseModel
-from schemas import OpenAIChatMessage
+from typing import List, Optional, Dict, Any
 
 class Pipeline:
-    class Valves(BaseModel):
-        # List target pipeline ids (models) that this filter will be connected to.
-        # If you want to connect this filter to all pipelines, you can set pipelines to ["*"]
-        pipelines: List[str] = ["*"]
-        # Assign a priority level to the filter pipeline.
-        # The priority level determines the order in which the filter pipelines are executed.
-        # The lower the number, the higher the priority.
-        priority: int = 50
-        # Category configuration with model parameters
-        creative_writing_params: dict = {
-            "temperature": 0.9,
-            "top_p": 0.95,
-            "max_tokens": 2048
-        }
-        technical_writing_params: dict = {
-            "temperature": 0.3,
-            "top_p": 0.7,
-            "max_tokens": 4096
-        }
-        question_answering_params: dict = {
-            "temperature": 0.7,
-            "top_p": 0.8,
-            "max_tokens": 1024
-        }
-        default_params: dict = {
-            "temperature": 0.7,
-            "top_p": 0.9,
-            "max_tokens": 2048
-        }
-        # Keywords for category detection
-        creative_keywords: List[str] = ["story", "poem", "fiction", "creative", "write", "narrative"]
-        technical_keywords: List[str] = ["code", "api", "technical", "function", "module", "script", "programming"]
-        question_keywords: List[str] = ["?", "how", "why", "what", "when", "where", "who"]
-
     def __init__(self):
         # Pipeline filters are only compatible with Open WebUI
         # You can think of filter pipeline as a middleware that can be used to edit the form data before it is sent to the OpenAI API.
@@ -47,7 +11,50 @@ class Pipeline:
         # Best practice is to not specify the id so that it can be automatically inferred from the filename
         # self.id = "autotagger_filter_pipeline"
         self.name = "AutoTagger Pipeline"
-        self.valves = self.Valves()
+        
+        # Define our settings directly as attributes instead of using Pydantic
+        self.valves = self._set_valves()
+        
+    def _set_valves(self):
+        # Create a simple class-like object to hold our settings
+        class Valves:
+            pass
+        
+        valves = Valves()
+        
+        # List target pipeline ids
+        valves.pipelines = ["*"]
+        # Priority level (lower = higher priority)
+        valves.priority = 50
+        
+        # Category configuration with model parameters
+        valves.creative_writing_params = {
+            "temperature": 0.9,
+            "top_p": 0.95,
+            "max_tokens": 2048
+        }
+        valves.technical_writing_params = {
+            "temperature": 0.3,
+            "top_p": 0.7,
+            "max_tokens": 4096
+        }
+        valves.question_answering_params = {
+            "temperature": 0.7,
+            "top_p": 0.8,
+            "max_tokens": 1024
+        }
+        valves.default_params = {
+            "temperature": 0.7,
+            "top_p": 0.9,
+            "max_tokens": 2048
+        }
+        
+        # Keywords for category detection
+        valves.creative_keywords = ["story", "poem", "fiction", "creative", "write", "narrative"]
+        valves.technical_keywords = ["code", "api", "technical", "function", "module", "script", "programming"]
+        valves.question_keywords = ["?", "how", "why", "what", "when", "where", "who"]
+        
+        return valves
 
     async def on_startup(self):
         # This function is called when the server is started.
