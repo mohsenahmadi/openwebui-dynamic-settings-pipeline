@@ -1,48 +1,41 @@
 """
-title: Dynamic Settings Filter Pipeline
-author: [Your Name]
+title: Dynamic Settings Manifold Pipeline
+author: D!Mo
 date: 2025-03-08
-version: 1.0
+version: 1.1
 license: MIT
-description: A filter pipeline that dynamically adjusts OpenAI API settings based on the task type inferred from the user's prompt.
+description: A manifold pipeline that dynamically adjusts OpenAI API settings and appends the applied settings map to the response.
 requirements: None
 """
 
-from typing import List, Optional
+from typing import List, Optional, Union, Generator, Iterator
 from pydantic import BaseModel
-from schemas import OpenAIChatMessage
+import logging
 
+# Set up logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class Pipeline:
     class Valves(BaseModel):
-        # Connect this filter to all pipelines by default (use "*" for all models)
         pipelines: List[str] = ["*"]
-
-        # Set priority (lower number = higher priority)
         priority: int = 0
 
     def __init__(self):
-        # Define this as a filter pipeline for Open WebUI
-        self.type = "filter"
-
-        # Name of the pipeline
+        # Change type to manifold to handle both input and output
+        self.type = "manifold"
         self.name = "DynamicSettings"
-
-        # Configure the valves (target pipelines and priority)
         self.valves = self.Valves(**{"pipelines": ["*"]})
+        # Store the task type for use in outlet
+        self.current_task = "default"
 
     async def on_startup(self):
-        # Called when the server starts
-        print(f"on_startup:{__name__}")
-        pass
+        logger.info(f"Pipeline started: {__name__}")
 
     async def on_shutdown(self):
-        # Called when the server stops
-        print(f"on_shutdown:{__name__}")
-        pass
+        logger.info(f"Pipeline stopped: {__name__}")
 
     def classify_task(self, prompt: str) -> str:
-        """Classify the task type based on keywords in the prompt."""
         prompt = prompt.lower()
         if any(keyword in prompt for keyword in ["story", "imagine", "create", "poem"]):
             return "creative"
@@ -52,58 +45,24 @@ class Pipeline:
             return "technical"
         return "default"
 
-    # Settings map for different task types
     SETTINGS_MAP = {
-        "creative": {
-            "temperature": 0.9,
-            "top_k": 50,
-            "top_p": 0.95,
-            "frequency_penalty": 0.5,
-            "presence_penalty": 0.5,
-            "max_tokens": 1000
-        },
-        "factual": {
-            "temperature": 0.2,
-            "top_k": 10,
-            "top_p": 0.9,
-            "frequency_penalty": 0.0,
-            "presence_penalty": 0.0,
-            "max_tokens": 100
-        },
-        "technical": {
-            "temperature": 0.3,
-            "top_k": 20,
-            "top_p": 0.85,
-            "frequency_penalty": 0.0,
-            "presence_penalty": 0.0,
-            "max_tokens": 300
-        },
-        "default": {
-            "temperature": 0.7,
-            "top_k": 40,
-            "top_p": 0.9,
-            "frequency_penalty": 0.5,
-            "presence_penalty": 0.2,
-            "max_tokens": 400
-        }
+        "creative": {"temperature": 0.9, "top_k": 50, "top_p": 0.95, "frequency_penalty": 0.5, "presence_penalty": 0.5, "max_tokens": 1000},
+        "factual": {"temperature": 0.2, "top_k": 10, "top_p": 0.9, "frequency_penalty": 0.0, "presence_penalty": 0.0, "max_tokens": 100},
+        "technical": {"temperature": 0.3, "top_k": 20, "top_p": 0.85, "frequency_penalty": 0.0, "presence_penalty": 0.0, "max_tokens": 300},
+        "default": {"temperature": 0.7, "top_k": 40, "top_p": 0.9, "frequency_penalty": 0.5, "presence_penalty": 0.2, "max_tokens": 400}
     }
 
     async def inlet(self, body: dict, user: Optional[dict] = None) -> dict:
-        """Filter applied to form data before sending to the OpenAI API."""
-        print(f"inlet:{__name__}")
+        logger.info(f"Processing request in {__name__}")
 
-        # Extract the prompt from the last message in the body
+        # Extract prompt and classify task
         messages = body.get("messages", [])
-        if messages:
-            prompt = messages[-1].get("content", "")
-        else:
-            prompt = ""
-
-        # Classify the task and get the corresponding settings
+        prompt = messages[-1].get("content", "") if messages else ""
         task = self.classify_task(prompt)
+        self.current_task = task  # Store task for use in outlet
         settings = self.SETTINGS_MAP.get(task, self.SETTINGS_MAP["default"])
 
-        # Apply the settings to the body
+        # Apply settings
         body["temperature"] = settings["temperature"]
         body["top_k"] = settings["top_k"]
         body["top_p"] = settings["top_p"]
@@ -111,8 +70,31 @@ class Pipeline:
         body["presence_penalty"] = settings["presence_penalty"]
         body["max_tokens"] = settings["max_tokens"]
 
-        print(f"Task classified as: {task}")
-        print(f"Applied settings: {settings}")
-        print(body)
+        logger.info(f"Task: {task}, User: {user.get('name', 'Unknown') if user else 'Unknown'}")
+        logger.info(f"Applied settings: {settings}")
 
+        return body
+
+    async def outlet(self, body: dict, user: Optional[dict] = None) -> Union[str, Generator, Iterator]:
+        logger.info(f"Processing response in {__name__}")
+
+        # If body is a string (direct response), append the task type
+        if isinstance(body, str):
+            return f"{body}\n\n({self.current_task})"
+
+        # If body is a generator/iterator (streaming response), wrap it to append the task type
+        if isinstance(body, (Generator, Iterator)):
+            async def wrapped_generator():
+                async for chunk in body:
+                    yield chunk
+                yield f"\n\n({self.current_task})"
+            return wrapped_generator()
+
+        # If body is a dict (structured response), append to the content
+        if isinstance(body, dict) and "content" in body:
+            body["content"] = f"{body['content']}\n\n({self.current_task})"
+            return body
+
+        # Fallback: return unchanged if format is unrecognized
+        logger.warning("Unrecognized response format, returning unchanged.")
         return body
