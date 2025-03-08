@@ -1,26 +1,33 @@
-from typing import List, Optional
-from pydantic import BaseModel
+from typing import List, Optional, Dict
+from pydantic import BaseModel, ValidationError
 from schemas import OpenAIChatMessage
 import re
+import logging
+
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
 
 class Pipeline:
     class Valves(BaseModel):
+        """Configuration for the pipeline filter."""
         pipelines: List[str] = ["*"]  # Apply to all models
         priority: int = 0
 
     def __init__(self):
+        """Initialize the pipeline with type and name."""
         self.type = "filter"
         self.name = "DynamicCategoryLLMAdjusterFilter"
         self.valves = self.Valves()
 
     async def on_startup(self):
-        # This function is called when the server is started
-        print(f"on_startup:{__name__}")
+        """Called when the server starts."""
+        logger.info(f"on_startup:{__name__}")
         pass
 
     async def on_shutdown(self):
-        # This function is called when the server is stopped
-        print(f"on_shutdown:{__name__}")
+        """Called when the server stops."""
+        logger.info(f"on_shutdown:{__name__}")
         pass
 
     # Define category settings
@@ -29,16 +36,14 @@ class Pipeline:
             "temperature": 1.0,
             "top_k": 75,
             "top_p": 0.9,
-            "max_tokens": 750,
             "frequency_penalty": 0.5,
             "presence_penalty": 0.6,
-            "stop": []  # OpenAI-compatible 'stop' parameter
+            "stop": []
         },
         "Technical Writing": {
             "temperature": 0.2,
             "top_k": 15,
             "top_p": 0.5,
-            "max_tokens": 300,
             "frequency_penalty": 0.2,
             "presence_penalty": 0.1,
             "stop": ["\n\n", "```"]
@@ -47,7 +52,6 @@ class Pipeline:
             "temperature": 0.6,
             "top_k": 40,
             "top_p": 0.7,
-            "max_tokens": 200,
             "frequency_penalty": 0.4,
             "presence_penalty": 0.5,
             "stop": ["Best regards", "Sincerely"]
@@ -56,7 +60,6 @@ class Pipeline:
             "temperature": 0.7,
             "top_k": 50,
             "top_p": 0.8,
-            "max_tokens": 150,
             "frequency_penalty": 0.3,
             "presence_penalty": 0.4,
             "stop": ["\n"]
@@ -65,7 +68,6 @@ class Pipeline:
             "temperature": 0.4,
             "top_k": 25,
             "top_p": 0.6,
-            "max_tokens": 100,
             "frequency_penalty": 0.3,
             "presence_penalty": 0.2,
             "stop": ["\n", "."]
@@ -75,6 +77,7 @@ class Pipeline:
     def detect_category(self, user_message: str) -> str:
         """Detect the category based on keywords in the user message."""
         message_lower = user_message.lower()
+        # Enhanced keyword detection with character count parsing
         if any(keyword in message_lower for keyword in ["write a story", "novel", "poem", "creative"]):
             return "Creative Writing"
         elif any(keyword in message_lower for keyword in ["code", "program", "technical", "document"]):
@@ -86,10 +89,15 @@ class Pipeline:
         else:
             return "Conversational Responses"  # Default for general queries
 
+    def extract_character_limit(self, user_message: str) -> Optional[int]:
+        """Extract the character limit from the user message if specified."""
+        match = re.search(r"in (\d+) characters?", user_message.lower())
+        return int(match.group(1)) if match else None
+
     async def inlet(self, body: dict, user: Optional[dict] = None) -> dict:
         """Modify the request body to adjust LLM settings dynamically."""
-        print(f"inlet:{__name__}")
-        print(f"Body: {body}")
+        logger.info(f"inlet:{__name__}")
+        logger.info(f"Body: {body}")
 
         # Safely extract the last user message
         messages = body.get("messages", [])
@@ -100,14 +108,28 @@ class Pipeline:
                     user_message = msg.get("content", "")
                     break
 
-        # If no user message found, skip processing (or handle as needed)
+        # If no user message found, skip processing
         if not user_message:
-            print("No user message found, skipping category detection.")
+            logger.warning("No user message found, skipping category detection.")
             return body
 
-        # Detect category and get settings
+        # Detect category
         category = self.detect_category(user_message)
-        settings = self.SETTINGS[category]
+        logger.info(f"Detected category: {category}")
+
+        # Extract character limit if specified
+        character_limit = self.extract_character_limit(user_message)
+        if character_limit:
+            logger.info(f"Detected character limit: {character_limit}")
+            # Adjust max tokens based on character limit (assuming 4 characters per token)
+            max_tokens = max(1, character_limit // 4)
+        else:
+            # Use default max tokens from settings
+            max_tokens = self.SETTINGS[category].get("max_tokens", 150)
+
+        # Get settings for the category
+        settings = self.SETTINGS[category].copy()
+        settings["max_tokens"] = max_tokens
 
         # Update body with settings
         body.update({
@@ -138,9 +160,20 @@ class Pipeline:
                     messages[i]["content"] += note
                     break
             else:
-                # If no user message exists, append a new one (unlikely but safe)
+                # If no user message exists, append a new one
                 messages.append({"role": "user", "content": user_message + note})
             body["messages"] = messages
 
-        print(f"Modified body: {body}")
+        logger.info(f"Modified body: {body}")
         return body
+
+if __name__ == "__main__":
+    # Example usage for testing (optional)
+    class MockBody:
+        def __init__(self):
+            self.messages = [{"role": "user", "content": "Write a short Story in one hundred characters?"}]
+
+    pipeline = Pipeline()
+    body = MockBody().__dict__
+    result = pipeline.inlet(body)
+    print(result)
