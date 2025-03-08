@@ -1,60 +1,74 @@
 import os
 from typing import List, Optional
+from pydantic import BaseModel
+from schemas import OpenAIChatMessage
+import time
 
 class Pipeline:
+    class Valves(BaseModel):
+        # List target pipeline ids (models) that this filter will be connected to.
+        # If you want to connect this filter to all pipelines, you can set pipelines to ["*"]
+        pipelines: List[str] = ["*"]
+        # Assign a priority level to the filter pipeline.
+        # The priority level determines the order in which the filter pipelines are executed.
+        # The lower the number, the higher the priority.
+        priority: int = 50
+        
+        # Our custom settings
+        creative_keywords: List[str] = ["story", "poem", "fiction", "creative", "write", "narrative"]
+        technical_keywords: List[str] = ["code", "api", "technical", "function", "module", "script", "programming"]
+        question_keywords: List[str] = ["?", "how", "why", "what", "when", "where", "who"]
+
     def __init__(self):
-        # Pipeline type
+        # Pipeline filters are only compatible with Open WebUI
+        # You can think of filter pipeline as a middleware that can be used to edit the form data before it is sent to the OpenAI API.
         self.type = "filter"
+        # Optionally, you can set the id and name of the pipeline.
+        # Best practice is to not specify the id so that it can be automatically inferred from the filename, so that users can install multiple versions of the same pipeline.
+        # The identifier must be unique across all pipelines.
+        # The identifier must be an alphanumeric string that can include underscores or hyphens. It cannot contain spaces, special characters, slashes, or backslashes.
+        # self.id = "autotagger_filter_pipeline"
         self.name = "AutoTagger Pipeline"
+        self.valves = self.Valves()
         
-        # Define valves directly as a dictionary
-        self.valves = {
-            "pipelines": ["*"],
-            "priority": 50
-        }
-        
-        # Store settings and keywords as class attributes for easier access
-        self.creative_keywords = ["story", "poem", "fiction", "creative", "write", "narrative"]
-        self.technical_keywords = ["code", "api", "technical", "function", "module", "script", "programming"]
-        self.question_keywords = ["?", "how", "why", "what", "when", "where", "who"]
-        
-        self.creative_params = {
-            "temperature": 0.9,
-            "top_p": 0.95,
-            "max_tokens": 2048
-        }
-        self.technical_params = {
-            "temperature": 0.3,
-            "top_p": 0.7,
-            "max_tokens": 4096
-        }
-        self.question_params = {
-            "temperature": 0.7,
-            "top_p": 0.8,
-            "max_tokens": 1024
-        }
-        self.default_params = {
-            "temperature": 0.7,
-            "top_p": 0.9,
-            "max_tokens": 2048
+        # Store category parameters separately
+        self.category_params = {
+            "Creative Writing": {
+                "temperature": 0.9,
+                "top_p": 0.95,
+                "max_tokens": 2048
+            },
+            "Technical Writing": {
+                "temperature": 0.3,
+                "top_p": 0.7,
+                "max_tokens": 4096
+            },
+            "Question Answering": {
+                "temperature": 0.7,
+                "top_p": 0.8,
+                "max_tokens": 1024
+            },
+            "DEFAULT": {
+                "temperature": 0.7,
+                "top_p": 0.9,
+                "max_tokens": 2048
+            }
         }
 
     async def on_startup(self):
+        # This function is called when the server is started.
         print(f"on_startup:{__name__}")
         pass
 
     async def on_shutdown(self):
+        # This function is called when the server is stopped.
         print(f"on_shutdown:{__name__}")
         pass
 
-    # Add mock dictionary-like access to valves
-    def __getattr__(self, name):
-        # If something tries to access valves.model_dump, provide a function
-        if name == "model_dump":
-            return lambda: self.valves
-
     async def inlet(self, body: dict, user: Optional[dict] = None) -> dict:
         print(f"pipe:{__name__}")
+        print(body)
+        print(user)
         
         if not user:
             return body
@@ -82,17 +96,9 @@ class Pipeline:
         # Create a copy of body to avoid modifying the original
         modified_body = body.copy()
         
-        # Apply parameters based on category
-        category_params = self.default_params
-        if category == "Creative Writing":
-            category_params = self.creative_params
-        elif category == "Technical Writing":
-            category_params = self.technical_params
-        elif category == "Question Answering":
-            category_params = self.question_params
-        
-        # Apply parameters if not already specified
-        for key, value in category_params.items():
+        # Apply parameters for the detected category
+        params = self.category_params.get(category, self.category_params["DEFAULT"])
+        for key, value in params.items():
             if key not in modified_body or modified_body[key] is None:
                 modified_body[key] = value
         
@@ -104,9 +110,10 @@ class Pipeline:
         return modified_body
 
     async def outlet(self, body: dict, user: Optional[dict] = None) -> dict:
+        # This function is called after the OpenAI API responds.
         if not user:
             return body
-            
+        
         if "metadata" not in body:
             body["metadata"] = {}
         body["metadata"]["processing_pipeline"] = self.name
@@ -120,9 +127,9 @@ class Pipeline:
         text_lower = text.lower()
         
         # Check each category
-        creative_score = sum(1 for kw in self.creative_keywords if kw.lower() in text_lower)
-        technical_score = sum(1 for kw in self.technical_keywords if kw.lower() in text_lower)
-        question_score = sum(1 for kw in self.question_keywords if kw.lower() in text_lower)
+        creative_score = sum(1 for kw in self.valves.creative_keywords if kw.lower() in text_lower)
+        technical_score = sum(1 for kw in self.valves.technical_keywords if kw.lower() in text_lower)
+        question_score = sum(1 for kw in self.valves.question_keywords if kw.lower() in text_lower)
         
         # Determine category with highest score
         scores = {
