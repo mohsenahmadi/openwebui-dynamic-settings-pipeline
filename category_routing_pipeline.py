@@ -6,43 +6,41 @@ version: 1.0
 requirements: 
 """
 
-from typing import List, Union, Generator, Iterator
+from typing import List, Union, Generator, Iterator, Tuple, Dict
 from schemas import OpenAIChatMessage
 from pydantic import BaseModel
 import re
 
 class Pipeline:
     class Valves(BaseModel):
+        """Placeholder for pipeline valve configurations."""
         pass
 
     def __init__(self):
         self.name = "Category Routing Pipeline"
 
     def detect_category(self, message: str) -> str:
-        """Detect category using regex with standard library."""
+        """Detects the category of the message using regex-based classification."""
         message = message.lower()
-        if re.search(r"story|poem|imagine", message):
-            return "Creative Writing"
-        elif re.search(r"code|technical|document", message):
-            return "Technical Writing"
-        elif re.search(r"report|proposal|business", message):
-            return "Business Writing"
-        elif re.search(r"explain|teach|learn", message):
-            return "Educational Content"
-        elif re.search(r"post|tweet|share", message):
-            return "Social Media Posts"
-        elif re.search(r"translate|language|convert", message):
-            return "Translation"
-        elif re.search(r"summarize|brief|condense", message):
-            return "Summarization"
-        elif re.search(r"what|how|why", message):
-            return "Question Answering"
-        else:
-            return "General"
+        category_mappings = {
+            "Creative Writing": r"story|poem|imagine",
+            "Technical Writing": r"code|technical|document",
+            "Business Writing": r"report|proposal|business",
+            "Educational Content": r"explain|teach|learn",
+            "Social Media Posts": r"post|tweet|share",
+            "Translation": r"translate|language|convert",
+            "Summarization": r"summarize|brief|condense",
+            "Question Answering": r"what|how|why"
+        }
 
-    def get_model_and_params(self, category: str) -> tuple:
-        """Map category to model and parameters."""
-        mappings = {
+        for category, pattern in category_mappings.items():
+            if re.search(pattern, message):
+                return category
+        return "General"
+
+    def get_model_and_params(self, category: str) -> Tuple[str, Dict[str, float]]:
+        """Maps detected category to an appropriate LLM model with fine-tuned parameters."""
+        model_mappings = {
             "Creative Writing": ("anthropic/claude-3.7-sonnet", {"temperature": 0.9, "top_p": 0.95, "top_k": 50}),
             "Technical Writing": ("gpt-4.5", {"temperature": 0.3, "top_p": 0.8, "top_k": 40}),
             "Business Writing": ("gpt-4.5", {"temperature": 0.5, "top_p": 0.85, "top_k": 40}),
@@ -53,26 +51,27 @@ class Pipeline:
             "Question Answering": ("gpt-4.5", {"temperature": 0.4, "top_p": 0.85, "top_k": 40}),
             "General": ("gpt-4.5", {"temperature": 0.6, "top_p": 0.9, "top_k": 50})
         }
-        return mappings.get(category, ("gpt-4.5", {"temperature": 0.6, "top_p": 0.9, "top_k": 50}))
+        return model_mappings.get(category, ("gpt-4.5", {"temperature": 0.6, "top_p": 0.9, "top_k": 50}))
 
     async def inlet(self, body: dict, user: dict) -> dict:
-        """Modify request for the first message only."""
+        """Processes the first user message and assigns an appropriate LLM model."""
         messages = body.get("messages", [])
-        if messages and len(messages) == 1:  # First message in the conversation
-            user_message = messages[0]["content"]
+        if messages and len(messages) == 1:  # Only process the first message
+            user_message = messages[0].get("content", "")
             category = self.detect_category(user_message)
             model, params = self.get_model_and_params(category)
+
             print(f"Detected category: {category}, Selected model: {model}")
+
             body["model"] = model
-            body.update(params)
-        # For subsequent messages, rely on Open WebUI’s context to retain the model
+            body.update(params)  # Apply model-specific parameters
         return body
 
     def pipe(self, user_message: str, model_id: str, messages: List[dict], body: dict) -> Union[str, Generator, Iterator]:
-        """Fallback logic, though inlet should handle most cases."""
+        """Provides a fallback logic in case `inlet` is not triggered properly."""
         if len(messages) == 1:
             category = self.detect_category(user_message)
             model, params = self.get_model_and_params(category)
             body["model"] = model
             body.update(params)
-        return user_message  # Pass through to LLM
+        return user_message  # Pass-through to the LLM
