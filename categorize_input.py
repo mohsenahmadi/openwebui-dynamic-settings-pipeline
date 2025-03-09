@@ -54,6 +54,3 @@ def categorize_input(input_data: dict) -> dict:
         "original_input": question  # Preserve original input for the function
     }
     return input_data
-
-# Register the pipeline (required for Open WebUI compatibility)
-pipeline = categorize_input
