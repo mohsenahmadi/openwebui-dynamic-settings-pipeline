@@ -13,16 +13,13 @@ import re
 
 class Pipeline:
     class Valves(BaseModel):
-        # Optional: Configure category keywords or model mappings here
         pass
 
     def __init__(self):
         self.name = "Category Routing Pipeline"
-        # Track the selected model and parameters per chat session
-        self.session_state = {}
 
-    # Category detection logic
     def detect_category(self, message: str) -> str:
+        """Detect category using regex with standard library."""
         message = message.lower()
         if re.search(r"story|poem|imagine", message):
             return "Creative Writing"
@@ -43,8 +40,8 @@ class Pipeline:
         else:
             return "General"
 
-    # Model and parameter mapping
     def get_model_and_params(self, category: str) -> tuple:
+        """Map category to model and parameters."""
         mappings = {
             "Creative Writing": ("anthropic/claude-3.7-sonnet", {"temperature": 0.9, "top_p": 0.95, "top_k": 50}),
             "Technical Writing": ("gpt-4.5", {"temperature": 0.3, "top_p": 0.8, "top_k": 40}),
@@ -59,27 +56,23 @@ class Pipeline:
         return mappings.get(category, ("gpt-4.5", {"temperature": 0.6, "top_p": 0.9, "top_k": 50}))
 
     async def inlet(self, body: dict, user: dict) -> dict:
-        # Extract chat ID to track session (assumes Open WebUI provides a unique identifier)
-        chat_id = body.get("chat_id", user.get("id", "default"))
-
-        # Check if this is the first request in the session
-        if chat_id not in self.session_state:
-            user_message = body.get("messages", [])[-1]["content"] if body.get("messages") else ""
+        """Modify request for the first message only."""
+        messages = body.get("messages", [])
+        if messages and len(messages) == 1:  # First message in the conversation
+            user_message = messages[0]["content"]
             category = self.detect_category(user_message)
             model, params = self.get_model_and_params(category)
-            self.session_state[chat_id] = {"model": model, "params": params}
             print(f"Detected category: {category}, Selected model: {model}")
-
-        # Apply the selected model and parameters
-        body["model"] = self.session_state[chat_id]["model"]
-        body.update(self.session_state[chat_id]["params"])
+            body["model"] = model
+            body.update(params)
+        # For subsequent messages, rely on Open WebUI’s context to retain the model
         return body
 
     def pipe(self, user_message: str, model_id: str, messages: List[dict], body: dict) -> Union[str, Generator, Iterator]:
-        # Fallback if inlet isn’t triggered; not typically needed with Arena Model
-        chat_id = body.get("chat_id", "default")
-        if chat_id not in self.session_state:
+        """Fallback logic, though inlet should handle most cases."""
+        if len(messages) == 1:
             category = self.detect_category(user_message)
             model, params = self.get_model_and_params(category)
-            self.session_state[chat_id] = {"model": model, "params": params}
-        return user_message  # Let the downstream LLM handle the response
+            body["model"] = model
+            body.update(params)
+        return user_message  # Pass through to LLM
