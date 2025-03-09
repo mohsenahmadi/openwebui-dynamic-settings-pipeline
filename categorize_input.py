@@ -1,5 +1,8 @@
 # categorize_input.py
-# Pipeline to categorize user input and tag it with model/settings recommendations
+# Filter Pipeline to categorize user input and tag with model/settings recommendations
+
+from typing import List, Optional, Dict
+from pydantic import BaseModel
 
 CATEGORIES = {
     "Creative Writing": ("anthropic/claude-3.7-sonnet", {"temperature": 0.9, "top_p": 0.95, "top_k": 50}),
@@ -13,44 +16,54 @@ CATEGORIES = {
     "General": ("gpt-4.5", {"temperature": 0.6, "top_p": 0.9, "top_k": 50}),
 }
 
-def categorize_input(input_data: dict) -> dict:
-    """
-    Analyzes user input, categorizes it, and tags it with model/settings.
-    Args:
-        input_data (dict): The input payload containing the user's message.
-    Returns:
-        dict: Updated input_data with tags for category, model, and settings.
-    """
-    question = input_data.get("content", "").lower()
-    
-    # Keyword-based categorization (customize as needed)
-    if "write a story" in question or "creative" in question:
-        category = "Creative Writing"
-    elif "technical" in question or "code" in question or "document" in question:
-        category = "Technical Writing"
-    elif "business" in question or "proposal" in question or "email" in question:
-        category = "Business Writing"
-    elif "educat" in question or "teach" in question or "lesson" in question:
-        category = "Educational Content"
-    elif "social media" in question or "post" in question or "tweet" in question:
-        category = "Social Media Posts"
-    elif "translate" in question or "language" in question:
-        category = "Translation"
-    elif "summarize" in question or "summary" in question:
-        category = "Summarization"
-    elif "what" in question or "how" in question or "why" in question:
-        category = "Question Answering"
-    else:
-        category = "General"
+class Pipeline:
+    class Valves(BaseModel):
+        pipelines: List[str] = ["*"]  # Apply to all models
+        priority: int = 0  # Default priority
 
-    # Get model and settings
-    model, settings = CATEGORIES[category]
-    
-    # Add tags to input_data
-    input_data["tags"] = {
-        "category": category,
-        "model": model,
-        "settings": settings,
-        "original_input": question  # Preserve original input for the function
-    }
-    return input_data
+    def __init__(self):
+        self.type = "filter"
+        self.name = "Categorize Input Pipeline"
+        self.valves = self.Valves()
+
+    async def inlet(self, body: dict, user: Optional[dict] = None) -> dict:
+        # Extract the last user message
+        messages = body.get("messages", [])
+        if not messages:
+            return body
+        
+        question = messages[-1].get("content", "").lower()
+
+        # Keyword-based categorization
+        if "write a story" in question or "creative" in question:
+            category = "Creative Writing"
+        elif "technical" in question or "code" in question:
+            category = "Technical Writing"
+        elif "business" in question or "email" in question:
+            category = "Business Writing"
+        elif "educat" in question or "teach" in question:
+            category = "Educational Content"
+        elif "social media" in question or "post" in question:
+            category = "Social Media Posts"
+        elif "translate" in question:
+            category = "Translation"
+        elif "summarize" in question:
+            category = "Summarization"
+        elif "what" in question or "how" in question:
+            category = "Question Answering"
+        else:
+            category = "General"
+
+        model, settings = CATEGORIES[category]
+        
+        # Add tags to the body
+        if "tags" not in body:
+            body["tags"] = {}
+        body["tags"].update({
+            "category": category,
+            "model": model,
+            "settings": settings,
+            "original_input": question
+        })
+
+        return body
