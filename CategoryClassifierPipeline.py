@@ -1,7 +1,7 @@
 """
 title: CategoryClassifierPipeline
 author: YourName (with help from Grok 3)
-version: 1.2
+version: 1.3
 license: MIT
 description: A pipeline that classifies the category of the user's first message using microsoft/phi-3-mini-128k-instruct:free model.
 requirements: requests
@@ -21,6 +21,10 @@ class Pipeline:
         api_key: str = Field(
             default="",
             description="API Key for the classifier model (e.g., OpenRouter API Key)"
+        )
+        debug: bool = Field(
+            default=False,
+            description="Enable debug mode to log additional information"
         )
 
     def __init__(self):
@@ -49,6 +53,10 @@ class Pipeline:
         # Load valves (settings)
         self.valves = self.Valves(**config) if config else self.Valves()
 
+        # Debug: Check if valves are loaded correctly
+        if self.valves.debug:
+            print(f"Valves loaded: {self.valves.dict()}")
+
         # Check if this is the first user message
         messages = data.get("messages", [])
         if not messages or len(messages) != 1 or messages[0].get("role") != "user":
@@ -71,9 +79,10 @@ class Pipeline:
             detected_category = match.group(1) if match else "General"
         except Exception as e:
             detected_category = "General"
+            if self.valves.debug:
+                print(f"Error in category classification: {str(e)}")
 
         # Step 2: Add the category to the message for the default model to process
-        # We modify the system message or add a new one to include the category
         system_message = {
             "role": "system",
             "content": f"Category: {detected_category}\nProcess the following user request accordingly."
