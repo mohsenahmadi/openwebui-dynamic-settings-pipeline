@@ -1,7 +1,7 @@
 """
 title: CategoryClassifierPipeline
 author: YourName (with help from Grok 3)
-version: 1.1
+version: 1.2
 license: MIT
 description: A pipeline that classifies the category of the user's first message using microsoft/phi-3-mini-128k-instruct:free model.
 requirements: requests
@@ -13,7 +13,7 @@ from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
 
 class Pipeline:
-    class Config(BaseModel):
+    class Valves(BaseModel):
         api_url: str = Field(
             default="https://api.openrouter.ai/api/v1/chat/completions",
             description="API URL for the classifier model (e.g., OpenRouter API URL)"
@@ -39,15 +39,15 @@ class Pipeline:
         ]
         # Model for classification
         self.classifier_model = "microsoft/phi-3-mini-128k-instruct:free"
-        # Config will be set in __call__
-        self.config = None
+        # Valves will be set in __call__
+        self.valves = None
 
     def __call__(self, data: Dict, config: Optional[Dict] = None) -> Dict:
         """
         Main pipeline function that processes the user message and adds category classification.
         """
-        # Load config
-        self.config = self.Config(**config) if config else self.Config()
+        # Load valves (settings)
+        self.valves = self.Valves(**config) if config else self.Valves()
 
         # Check if this is the first user message
         messages = data.get("messages", [])
@@ -100,7 +100,7 @@ class Pipeline:
         """
         headers = {
             "Content-Type": "application/json",
-            "Authorization": f"Bearer {self.config.api_key}"
+            "Authorization": f"Bearer {self.valves.api_key}"
         }
         payload = {
             "model": self.classifier_model,
@@ -111,7 +111,7 @@ class Pipeline:
             "max_tokens": 50  # We only need a short response for the category
         }
 
-        response = requests.post(self.config.api_url, json=payload, headers=headers, timeout=5)
+        response = requests.post(self.valves.api_url, json=payload, headers=headers, timeout=5)
         if response.status_code == 200:
             return response.json()["choices"][0]["message"]["content"]
         else:
