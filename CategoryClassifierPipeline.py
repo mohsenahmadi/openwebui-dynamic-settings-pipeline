@@ -1,7 +1,7 @@
 """
 title: CategoryClassifierPipeline
 author: YourName (with help from Grok 3)
-version: 1.3
+version: 1.4
 license: MIT
 description: A pipeline that classifies the category of the user's first message using microsoft/phi-3-mini-128k-instruct:free model.
 requirements: requests
@@ -11,6 +11,15 @@ import requests
 import re
 from typing import Dict, List, Optional
 from pydantic import BaseModel, Field
+
+# Helper function to handle Pydantic version compatibility
+def pydantic_to_dict(obj):
+    try:
+        # Pydantic v2
+        return obj.model_dump() if obj else {}
+    except AttributeError:
+        # Pydantic v1
+        return obj.dict() if obj else {}
 
 class Pipeline:
     class Valves(BaseModel):
@@ -43,19 +52,28 @@ class Pipeline:
         ]
         # Model for classification
         self.classifier_model = "microsoft/phi-3-mini-128k-instruct:free"
-        # Valves will be set in __call__
-        self.valves = None
+        # Initialize valves with default values
+        self.valves = self.Valves()
 
     def __call__(self, data: Dict, config: Optional[Dict] = None) -> Dict:
         """
         Main pipeline function that processes the user message and adds category classification.
         """
         # Load valves (settings)
-        self.valves = self.Valves(**config) if config else self.Valves()
+        if config:
+            try:
+                self.valves = self.Valves(**config)
+            except Exception as e:
+                if self.valves.debug:
+                    print(f"Error loading config: {str(e)}")
+                self.valves = self.Valves()  # Fallback to default
+        else:
+            self.valves = self.Valves()
 
         # Debug: Check if valves are loaded correctly
         if self.valves.debug:
-            print(f"Valves loaded: {self.valves.dict()}")
+            print(f"Config received: {config}")
+            print(f"Valves loaded: {pydantic_to_dict(self.valves)}")
 
         # Check if this is the first user message
         messages = data.get("messages", [])
@@ -107,6 +125,9 @@ class Pipeline:
         """
         Calls the microsoft/phi-3-mini-128k-instruct:free model for category classification.
         """
+        if not self.valves:
+            raise ValueError("Valves not initialized")
+
         headers = {
             "Content-Type": "application/json",
             "Authorization": f"Bearer {self.valves.api_key}"
